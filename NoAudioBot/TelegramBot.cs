@@ -1,4 +1,5 @@
-﻿using Telegram.Bot;
+﻿using Serilog;
+using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
@@ -8,9 +9,11 @@ namespace NoAudioBot;
 
 public class TelegramBot
 {
-    private TelegramBotClient _client;
+    private ILogger _logger = LogPoint.GetLogger<TelegramBot>();
+    
+    private readonly TelegramBotClient _client;
 
-    private CancellationTokenSource _cancellationTokenSource = new();
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
 
     public TelegramBot(string token)
     {
@@ -19,36 +22,52 @@ public class TelegramBot
     
     public void RunDriver()
     {
-        Console.WriteLine("Started listening...");
-        
-        var receiverOptions = new ReceiverOptions
+        try
         {
-            AllowedUpdates = new [] { UpdateType.Message }
-        };
-        
-        while (!_cancellationTokenSource.IsCancellationRequested)
-        { 
-            var task = _client.ReceiveAsync(
-                updateHandler: HandleUpdateAsync,
-                pollingErrorHandler: HandlePollingErrorAsync,
-                receiverOptions: receiverOptions,
-                cancellationToken: _cancellationTokenSource.Token);
+            _logger.Information("Started listening...");
 
-            Task.WaitAll(task);
+            var receiverOptions = new ReceiverOptions
+            {
+                AllowedUpdates = new[] { UpdateType.Message }
+            };
+
+            while (!_cancellationTokenSource.IsCancellationRequested)
+            {
+                var task = _client.ReceiveAsync(
+                    HandleUpdateAsync,
+                    HandlePollingErrorAsync,
+                    receiverOptions,
+                    _cancellationTokenSource.Token);
+
+                Task.WaitAll(task);
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.Fatal(e, "Receiving error");
+            throw;
         }
     }
     
     private async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
-        var message = update.Message;
-        
-        if (message?.Type == MessageType.Voice)
+        try
         {
-            await botClient.SendTextMessageAsync(message.Chat.Id, "В данном чате запрещено отправлять голосовые сообщения!", replyToMessageId: message.MessageId, disableNotification: true, cancellationToken: cancellationToken);
+            var message = update.Message;
+            
+            if (message?.Type == MessageType.Voice)
+            {
+                await botClient.SendTextMessageAsync(message.Chat.Id, "В данном чате запрещено отправлять голосовые сообщения!", replyToMessageId: message.MessageId, disableNotification: true, cancellationToken: cancellationToken);
 
-            await botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken: cancellationToken);
+                await botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken: cancellationToken);
 
-            Console.WriteLine($"Deleted message of the user: {message.From}");
+                _logger.Information($"Deleted message of the user: {message.From}");
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.Error(e, "Could not handle message");
+            throw;
         }
     }
 
@@ -61,7 +80,7 @@ public class TelegramBot
             _ => exception.ToString()
         };
 
-        Console.WriteLine(errorMessage);
+        _logger.Error(errorMessage);
         return Task.CompletedTask;
     }
 }
