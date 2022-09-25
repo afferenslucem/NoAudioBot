@@ -10,10 +10,11 @@ public class LogPoint
 
         Log.Logger = configuration.CreateLogger();
     }
+
     private static LoggerConfiguration Configure()
     {
         var template = "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level}] — {TypeName} — {Message}{NewLine}{Exception}";
-        
+
         var configuration = new LoggerConfiguration()
             .Enrich.FromLogContext()
             .WriteTo.Console(outputTemplate: template)
@@ -21,10 +22,10 @@ public class LogPoint
 
 
         configuration.MinimumLevel.Information();
-        
+
         return configuration;
     }
-    
+
     public static ILogger GetLogger<T>()
     {
         return Log.Logger.ForContext("TypeName", typeof(T).Name, true);

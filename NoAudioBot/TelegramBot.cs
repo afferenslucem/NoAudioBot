@@ -9,22 +9,28 @@ namespace NoAudioBot;
 
 public class TelegramBot
 {
-    private ILogger _logger = LogPoint.GetLogger<TelegramBot>();
-    
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
+
     private readonly TelegramBotClient _client;
 
-    private readonly CancellationTokenSource _cancellationTokenSource = new();
+    private User _botUser = null!;
+    private readonly ILogger _logger = LogPoint.GetLogger<TelegramBot>();
 
     public TelegramBot(string token)
     {
         _client = new TelegramBotClient(token);
     }
-    
-    public void RunDriver()
+
+    public async Task RunDriver()
     {
         try
         {
-            _logger.Information("Started listening...");
+            _botUser = await _client.GetMeAsync();
+
+            _logger.Information($"My id is {_botUser.Id}");
+            _logger.Information($"My name is {_botUser.Username}");
+
+            _logger.Information("Start listening...");
 
             var receiverOptions = new ReceiverOptions
             {
@@ -32,15 +38,11 @@ public class TelegramBot
             };
 
             while (!_cancellationTokenSource.IsCancellationRequested)
-            {
-                var task = _client.ReceiveAsync(
+                await _client.ReceiveAsync(
                     HandleUpdateAsync,
                     HandlePollingErrorAsync,
                     receiverOptions,
                     _cancellationTokenSource.Token);
-
-                Task.WaitAll(task);
-            }
         }
         catch (Exception e)
         {
@@ -48,18 +50,33 @@ public class TelegramBot
             throw;
         }
     }
-    
-    private async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+
+    private async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update,
+        CancellationToken cancellationToken)
     {
         try
         {
             var message = update.Message;
-            
+
+            if (message?.NewChatMembers?.Any(member => member.Id == _botUser.Id) ?? false)
+            {
+                _logger.Information($"Bot added to chat: {message.Chat.Title}");
+                return;
+            }
+
+            if (message?.LeftChatMember?.Id == _botUser.Id)
+            {
+                _logger.Information($"Bot removed from chat: {message.Chat.Title}");
+                return;
+            }
+
             if (message?.Type == MessageType.Voice)
             {
-                await botClient.SendTextMessageAsync(message.Chat.Id, "В данном чате запрещено отправлять голосовые сообщения!", replyToMessageId: message.MessageId, disableNotification: true, cancellationToken: cancellationToken);
+                await botClient.SendTextMessageAsync(message.Chat.Id,
+                    "В данном чате запрещено отправлять голосовые сообщения!", replyToMessageId: message.MessageId,
+                    disableNotification: true, cancellationToken: cancellationToken);
 
-                await botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken: cancellationToken);
+                await botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken);
 
                 _logger.Information($"Deleted message of the user: {message.From}");
             }
@@ -71,7 +88,8 @@ public class TelegramBot
         }
     }
 
-    Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+    private Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception,
+        CancellationToken cancellationToken)
     {
         var errorMessage = exception switch
         {
