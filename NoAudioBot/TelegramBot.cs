@@ -4,17 +4,19 @@ using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
+using File = System.IO.File;
 
 namespace NoAudioBot;
 
 public class TelegramBot
 {
     private readonly CancellationTokenSource _cancellationTokenSource = new();
-
     private readonly TelegramBotClient _client;
 
     private User _botUser = null!;
     private readonly ILogger _logger = LogPoint.GetLogger<TelegramBot>();
+
+    private string _declineMessage = "";
 
     public TelegramBot(string token)
     {
@@ -30,13 +32,15 @@ public class TelegramBot
             _logger.Information($"My id is {_botUser.Id}");
             _logger.Information($"My name is {_botUser.Username}");
 
-            _logger.Information("Start listening...");
+            _declineMessage = await File.ReadAllTextAsync("decline-message.html");
+            _logger.Information($"Decline message: {_declineMessage}");
 
             var receiverOptions = new ReceiverOptions
             {
                 AllowedUpdates = new[] { UpdateType.Message }
             };
 
+            _logger.Information("Start listening...");
             while (!_cancellationTokenSource.IsCancellationRequested)
                 await _client.ReceiveAsync(
                     HandleUpdateAsync,
@@ -72,9 +76,14 @@ public class TelegramBot
 
             if (message?.Type == MessageType.Voice)
             {
-                await botClient.SendTextMessageAsync(message.Chat.Id,
-                    "В данном чате запрещено отправлять голосовые сообщения!", replyToMessageId: message.MessageId,
-                    disableNotification: true, cancellationToken: cancellationToken);
+                await botClient.SendTextMessageAsync(
+                    message.Chat.Id,
+                    _declineMessage, 
+                    replyToMessageId: message.MessageId,
+                    disableNotification: true, 
+                    parseMode: ParseMode.Html,
+                    cancellationToken: cancellationToken
+                );
 
                 await botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken);
 
